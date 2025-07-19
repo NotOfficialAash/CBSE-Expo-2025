@@ -1,16 +1,11 @@
 import cv2
 import numpy as np
-import serial
 import time
 
-# === Initialize webcam ===
+# Initialize webcam
 cap = cv2.VideoCapture(0)
 
-# === Serial Communication with Arduino ===
-arduino = serial.Serial("COM6", 9600, timeout=1)  # Replace with your COM port
-time.sleep(2)  # Let Arduino reset
-
-# === Define ROIs ===
+# Define ROIs for Road A, B, and C
 roi_A_top_left = (50, 50)
 roi_A_bottom_right = (600, 200)
 
@@ -20,27 +15,14 @@ roi_B_bottom_right = (600, 370)
 roi_C_top_left = (50, 390)
 roi_C_bottom_right = (600, 540)
 
-# === Background subtractors ===
+# Background subtractors for each road
 fgbg_A = cv2.createBackgroundSubtractorMOG2()
 fgbg_B = cv2.createBackgroundSubtractorMOG2()
 fgbg_C = cv2.createBackgroundSubtractorMOG2()
 
-# === Traffic counters ===
+# Traffic tracking variables
 frame_count_A = frame_count_B = frame_count_C = 0
 vehicle_count_A = vehicle_count_B = vehicle_count_C = 0
-
-# === Last known states (to avoid sending duplicate commands) ===
-last_state = {
-    "A": None,
-    "B": None,
-    "C": None
-}
-
-# === Helper to send command ===
-def send_command(cmd):
-    arduino.write((cmd + "\n").encode())
-    print("Sent to Arduino:", cmd)
-    time.sleep(0.1)  # Small delay to ensure stability
 
 while True:
     ret, frame = cap.read()
@@ -95,7 +77,7 @@ while True:
             x, y, w, h = cv2.boundingRect(c)
             cv2.rectangle(roi_frame_C, (x, y), (x + w, y + h), (0, 0, 255), 2)
 
-    ## === Display Density Info ===
+    ## === Drawing ROI Boxes & Density Info ===
     cv2.rectangle(frame, roi_A_top_left, roi_A_bottom_right, (0, 255, 0), 2)
     cv2.rectangle(frame, roi_B_top_left, roi_B_bottom_right, (255, 0, 0), 2)
     cv2.rectangle(frame, roi_C_top_left, roi_C_bottom_right, (0, 0, 255), 2)
@@ -103,19 +85,6 @@ while True:
     cv2.putText(frame, f'Density A: {traffic_density_A:.2f}', (50, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     cv2.putText(frame, f'Density B: {traffic_density_B:.2f}', (50, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
     cv2.putText(frame, f'Density C: {traffic_density_C:.2f}', (50, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
-    ## === Arduino Control Based on Traffic ===
-    def control_signal(signal_id, density):
-        state = "ON" if density > 5.00 else "OFF"
-        if last_state[signal_id] != state:
-            send_command(f"{signal_id}_R_{state}")
-            send_command(f"{signal_id}_Y_OFF")
-            send_command(f"{signal_id}_G_{'OFF' if state == 'ON' else 'ON'}")
-            last_state[signal_id] = state
-
-    control_signal("A", traffic_density_A)
-    control_signal("B", traffic_density_B)
-    control_signal("C", traffic_density_C)
 
     ## === Show Frame ===
     cv2.imshow('Traffic Detection', frame)
@@ -126,4 +95,3 @@ while True:
 # Cleanup
 cap.release()
 cv2.destroyAllWindows()
-arduino.close()
