@@ -8,32 +8,45 @@ from ultralytics import solutions
 arduino = serial.Serial("COM6", 9600, timeout=1)
 time.sleep(2)
 
-# Timing and control
+# Start with Signal A green
+current_green = "A"
 last_switch_time = time.time()
-current_green = "A"  # Start with Signal A
 
+# Send command to Arduino
 def send_command(cmd):
     arduino.write((cmd + "\n").encode())
     print("Sent:", cmd)
     time.sleep(0.05)
 
+# Control red and green lights
 def set_signal_state(signal, red, green):
     send_command(f"{signal}_R_{'ON' if red else 'OFF'}")
     send_command(f"{signal}_G_{'ON' if green else 'OFF'}")
 
-def switch_signal():
-    global current_green
-    if current_green == "A":
-        current_green = "B"
-    elif current_green == "B":
-        current_green = "C"
-    else:
-        current_green = "A"
+# Control yellow light
+def set_yellow(signal, state):
+    send_command(f"{signal}_Y_{'ON' if state else 'OFF'}")
 
-# Load video or webcam
+# Get next signal
+def get_next_signal(current):
+    return {"A": "B", "B": "C", "C": "A"}[current]
+
+# Switch signals with yellow transition
+def switch_signal_with_yellow(prev_signal, next_signal):
+    # Step 1: Turn off green of current
+    set_signal_state(prev_signal, red=True, green=False)
+    # Step 2: Yellow ON for 2s
+    set_yellow(prev_signal, True)
+    time.sleep(2)
+    set_yellow(prev_signal, False)
+    # Step 3: Switch green to next signal
+    set_signal_state(prev_signal, red=True, green=False)
+    set_signal_state(next_signal, red=False, green=True)
+
+# Load video
 capture = cv2.VideoCapture("test_rec.mp4")  # Use 0 for webcam
 
-# Define 3 separate regions with meaningful names
+# Define zones
 region_points = {
     "Zone A": [(10, 10), (400, 10), (400, 640), (10, 640)],
     "Zone B": [(410, 10), (800, 10), (800, 640), (410, 640)],
@@ -44,13 +57,18 @@ region_points = {
 w, h, fps = (int(capture.get(x)) for x in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS))
 video_writer = cv2.VideoWriter("count.avi", cv2.VideoWriter_fourcc(*"mp4v"), fps or 30, (w, h))
 
-# Initialize RegionCounter with multiple regions
+# Initialize RegionCounter
 regioncounter = solutions.RegionCounter(
     show=False,
     region=region_points,
     model="yolo11n.pt",
     classes=[1, 2, 3, 5, 7]
 )
+
+# Set initial signal states
+set_signal_state("A", red=False, green=True)
+set_signal_state("B", red=True, green=False)
+set_signal_state("C", red=True, green=False)
 
 # Main loop
 while capture.isOpened():
@@ -59,40 +77,31 @@ while capture.isOpened():
         print("Video File Not Found or Stream Ended")
         break
 
-    # Run RegionCounter
+    # Run YOLO + RegionCounter
     results = regioncounter(frame)
     annotated_frame = results.plot_im
 
-    # Manually count tracked objects inside each region
+    # Count objects in each region
     region_object_counts = defaultdict(int)
     for box, cls, track_id in zip(regioncounter.boxes, regioncounter.clss, regioncounter.track_ids):
         cx = (box[0] + box[2]) / 2
         cy = (box[1] + box[3]) / 2
         point = regioncounter.Point((cx, cy))
-
         for region in regioncounter.counting_regions:
             if region["prepared_polygon"].contains(point):
                 region_name = region["name"]
                 region_object_counts[region_name] += 1
 
-    # Show and write
+    # Write and display output
     video_writer.write(annotated_frame)
     cv2.imshow("Region Counter", annotated_frame)
 
-
-    # # Print object count per region
-    # print("Tracked object counts (center-in-region):")
-    # for name in region_points.keys():
-    #     count = region_object_counts.get(name, 0)
-    #     print(f"  {name}: {count}")
-    # print("-" * 30)
-
-    # Extract counts from regions
+    # Extract counts
     traffic_count_A = region_object_counts.get("Zone A", 0)
     traffic_count_B = region_object_counts.get("Zone B", 0)
     traffic_count_C = region_object_counts.get("Zone C", 0)
 
-    # Determine durations based on traffic density
+    # Determine green durations
     duration_A = 9 if traffic_count_A > 1 else 4
     duration_B = 9 if traffic_count_B > 1 else 4
     duration_C = 9 if traffic_count_C > 1 else 4
@@ -104,21 +113,16 @@ while capture.isOpened():
     else:
         active_duration = duration_C
 
-    # Time to switch signal?
+    # Time to switch?
     if time.time() - last_switch_time >= active_duration:
-        switch_signal()
+        next_green = get_next_signal(current_green)
+        switch_signal_with_yellow(current_green, next_green)
+        current_green = next_green
         last_switch_time = time.time()
-
-    # Apply current signal states
-    set_signal_state("A", red=(current_green != "A"), green=(current_green == "A"))
-    set_signal_state("B", red=(current_green != "B"), green=(current_green == "B"))
-    set_signal_state("C", red=(current_green != "C"), green=(current_green == "C"))
-
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         print("Exiting by user input")
         break
-
 
 # Cleanup
 capture.release()
