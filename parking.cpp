@@ -1,43 +1,64 @@
-#include <LiquidCrystal.h>
+const int irSensors[3] = {2, 3, 4};   // IR sensors
+const int buzzer = 5;                // Buzzer pin
 
-// Pins: RS, E, D4, D5, D6, D7
-LiquidCrystal lcd(5, 6, 7, 8, 9, 10);
+const int slotPaths[3][3] = {
+  {6, 7, 8},     // LEDs for Slot 1
+  {9, 10, 11},   // LEDs for Slot 2
+  {12, A0, A1}   // LEDs for Slot 3
+};
 
-// IR sensors
-const int ir1 = 2;
-const int ir2 = 3;
-const int ir3 = 4;
+int lastState[3] = {HIGH, HIGH, HIGH};
 
 void setup() {
-  pinMode(ir1, INPUT);
-  pinMode(ir2, INPUT);
-  pinMode(ir3, INPUT);
+  Serial.begin(9600);
+  pinMode(buzzer, OUTPUT);
 
-  lcd.begin(16, 2);
-  lcd.print("Smart Parking");
-  delay(2000);
-  lcd.clear();
+  for (int i = 0; i < 3; i++) {
+    pinMode(irSensors[i], INPUT);
+    for (int j = 0; j < 3; j++) {
+      pinMode(slotPaths[i][j], OUTPUT);
+    }
+  }
 }
 
 void loop() {
-  bool s1 = digitalRead(ir1);
-  bool s2 = digitalRead(ir2);
-  bool s3 = digitalRead(ir3);
+  int foundFree = -1;
 
-  int free = (s1 == HIGH) + (s2 == HIGH) + (s3 == HIGH);
+  for (int i = 0; i < 3; i++) {
+    int currentState = digitalRead(irSensors[i]);
 
-  lcd.setCursor(0, 0);
-  lcd.print("Free: ");
-  lcd.print(free);
-  lcd.print("    "); // clear extra
+    // Detect change
+    if (currentState != lastState[i]) {
+      beepOnce();
+      lastState[i] = currentState;
+    }
 
-  lcd.setCursor(0, 1);
-  lcd.print("S1:");
-  lcd.print(s1 == HIGH ? "F " : "X ");
-  lcd.print("S2:");
-  lcd.print(s2 == HIGH ? "F " : "X ");
-  lcd.print("S3:");
-  lcd.print(s3 == HIGH ? "F" : "X ");
-  
+    if (foundFree == -1 && currentState == HIGH) {
+      foundFree = i;
+    }
+  }
+
+ // Update LED pathways for the first available slot
+for (int i = 0; i < 3; i++) {
+  bool isFree = (i == foundFree && lastState[i] == HIGH);
+  for (int j = 0; j < 3; j++) {
+    digitalWrite(slotPaths[i][j], isFree ? HIGH : LOW);
+  }
+}
+
+
+  // Send to Python: 1,0,1
+  Serial.print(lastState[0]);
+  Serial.print(",");
+  Serial.print(lastState[1]);
+  Serial.print(",");
+  Serial.println(lastState[2]);
+
+  delay(300);
+}
+
+void beepOnce() {
+  digitalWrite(buzzer, HIGH);
   delay(1000);
+  digitalWrite(buzzer, LOW);
 }
