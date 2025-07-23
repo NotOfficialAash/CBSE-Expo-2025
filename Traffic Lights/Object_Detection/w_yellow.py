@@ -34,23 +34,32 @@ def get_next_signal(current):
 # Switch signals with yellow transition
 def switch_signal_with_yellow(prev_signal, next_signal):
     # Step 1: Turn off green of current
-    set_signal_state(prev_signal, red=True, green=False)
+    set_signal_state(prev_signal, red=False, green=False)
     # Step 2: Yellow ON for 2s
     set_yellow(prev_signal, True)
     time.sleep(2)
     set_yellow(prev_signal, False)
-    # Step 3: Switch green to next signal
     set_signal_state(prev_signal, red=True, green=False)
+
+    set_signal_state(next_signal, red=False, green=False)
+    set_yellow(next_signal, True)
+    time.sleep(2)
+    set_yellow(next_signal, False)
+    # Step 3: Switch green to next signal
     set_signal_state(next_signal, red=False, green=True)
 
+def arduino_close():
+    set_signal_state("A", red=False, green=False)
+    set_signal_state("B", red=False, green=False)
+    set_signal_state("C", red=False, green=False)
 # Load video
-capture = cv2.VideoCapture("test_rec.mp4")  # Use 0 for webcam
+capture = cv2.VideoCapture(0)  # Use 0 for webcam
 
 # Define zones
 region_points = {
-    "Zone A": [(10, 10), (400, 10), (400, 640), (10, 640)],
-    "Zone B": [(410, 10), (800, 10), (800, 640), (410, 640)],
-    "Zone C": [(810, 10), (1200, 10), (1200, 640), (810, 640)]
+    "Zone A": [(10, 10), (600, 10), (600, 840), (10, 840)],
+    "Zone B": [(610, 10), (800, 10), (800, 840), (610, 840)],
+    "Zone C": [(810, 10), (1200, 10), (1200, 840), (810, 840)]
 }
 
 # Video Writer config
@@ -62,7 +71,8 @@ regioncounter = solutions.RegionCounter(
     show=False,
     region=region_points,
     model="yolo11n.pt",
-    classes=[1, 2, 3, 5, 7]
+    classes=[1, 2, 3, 5, 7],
+    conf=0.1
 )
 
 # Set initial signal states
@@ -75,6 +85,7 @@ while capture.isOpened():
     success, frame = capture.read()
     if not success:
         print("Video File Not Found or Stream Ended")
+        arduino_close()
         break
 
     # Run YOLO + RegionCounter
@@ -101,6 +112,8 @@ while capture.isOpened():
     traffic_count_B = region_object_counts.get("Zone B", 0)
     traffic_count_C = region_object_counts.get("Zone C", 0)
 
+    print(traffic_count_A, traffic_count_B, traffic_count_C)
+
     # Determine green durations
     duration_A = 9 if traffic_count_A > 1 else 4
     duration_B = 9 if traffic_count_B > 1 else 4
@@ -122,6 +135,7 @@ while capture.isOpened():
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         print("Exiting by user input")
+        arduino_close()
         break
 
 # Cleanup
