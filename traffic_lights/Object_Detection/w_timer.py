@@ -27,6 +27,17 @@ def send_signal_command(cmd):
 
 
 '''
+        Send Remaining Time to Arduino Through the Port Opened
+Same as send_signal_command, but instead we send the remaining time to be displayed in the OLED screen to Arduino.
+remaining_time argument needs a string datatype not integer.
+'''
+def send_time_command(remaining_time):
+    arduino.write((remaining_time + "\n").encode())
+    print("Time Remaining:", remaining_time)
+    time.sleep(0.05)
+
+
+'''
         Set the State of One Signal Unit
 You need to specify the name of the Signal Unit and then set lights to be ON or OFF.
 '''
