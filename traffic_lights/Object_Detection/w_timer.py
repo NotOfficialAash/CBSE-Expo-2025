@@ -1,3 +1,13 @@
+# Authors:
+#  - Aashrith Srinivasa
+#  - Atrey K Urs
+#  - Punya S
+#  - Aarav V
+
+#
+# Special Thanks:
+#  - Niranth 
+
 import cv2
 import serial
 import time
@@ -33,7 +43,7 @@ remaining_time argument needs a string datatype not integer.
 '''
 def send_time_command(remaining_time):
     arduino.write((remaining_time + "\n").encode())
-    print("Time Remaining:", remaining_time)
+    print("Sent: TIME", remaining_time)
     time.sleep(0.05)
 
 
@@ -65,6 +75,7 @@ signal_order = {"A" : "B", "B" : "C", "C" : "A"}
 current_green = "A"
 next_green = signal_order[current_green]
 current_phase = "green"
+last_sent_second = -1
 last_switch_time = time.time()
 
 
@@ -73,7 +84,7 @@ last_switch_time = time.time()
 In case of a video file, enter the file name inside quotes.
 In case of a live video feed through a camera, make sure to connect the camera to the PC and use whole numbers to access each camera. For example, 0 will use the default camera
 '''
-capture = cv2.VideoCapture("test_rec.mp4")
+capture = cv2.VideoCapture(1)
 
 
 '''
@@ -108,13 +119,18 @@ model - Specify the YOLO model to be used.
 region - Specify the regions to be used to count the objects.
 classes - Define (using a list) which objects should be detected and tracked by YOLO. Here we use 1, 2, 3, 5, 7 which are the respective classes for bicycles, cars, trucks, busses and motorbikes. Refer to the COCO training dataset to define this list
 conf - Used to set the confidence threshold for the model to detect the objects.
+verbose - Internal logging system provided by YOLO. Useful for analytics.
+device - Specify the device on which YOLO will run. CPU for cpu and whole number 0, 1 and such (depends on the number of GPUs connected) for using your GPU.
 '''
 region_counter = solutions.RegionCounter(
     show=False,
     model="yolo11s.pt",
     region=region_points,
     classes=[1, 2, 3, 5, 7],
-    conf=0.1
+    conf=0.1,
+
+    verbose=False,
+    device="CPU"
 )
 
 
@@ -184,8 +200,8 @@ while capture.isOpened():
     duration_A = 9 if traffic_count_A > 1 else 4
     duration_B = 9 if traffic_count_B > 1 else 4
     duration_C = 9 if traffic_count_C > 1 else 4
-    duration_yellow_stop = 2
-    duration_yellow_start = 2
+    duration_yellow_stop = 1
+    duration_yellow_start = 1
     
     if current_green == "A":
         duration_active = duration_A
@@ -198,12 +214,44 @@ while capture.isOpened():
     '''
     Calculate the current time and the elapsed time.
     Will be used to check the duration of the green and yellow lights.
-    Depending on the phase of the current signal and the next signal, send commands to switch lights.
     '''
     current_time = time.time()
     elapsed_time = current_time - last_switch_time
     time_counter = duration_active
 
+
+    '''
+    Logic for a countdown timer to be displayed for the signals
+    '''
+    current_second = int(elapsed_time)
+    if current_second != last_sent_second:
+        last_sent_second = current_second
+
+        if current_phase == "green":
+            remaining = max(0, duration_active - current_second)
+            send_time_command(str(remaining))
+            print(f"Time Remaining {current_phase}:", remaining)
+
+        elif current_phase == "yellow_stop":
+            remaining = max(0, duration_yellow_stop - current_second)
+            send_time_command(str(remaining))
+            print(f"Time Remaining {current_phase}:", remaining)
+
+        elif current_phase == "yellow_start":
+            remaining = max(0, duration_yellow_start - current_second)
+            send_time_command(str(remaining))
+            print(f"Time Remaining {current_phase}:", remaining)
+
+        elif current_phase == "red":
+            # Not strictly necessary in your current design (since red is implicit),
+            # but if you ever want to show remaining red for the currently non-green signals,
+            # you can extend it here.
+            pass
+
+
+    '''
+    Logic to switch signals (and signal units) after the set time has be elapsed.
+    '''
     if current_phase == "green":
         if elapsed_time >= duration_active:
             set_signal_state(current_green, red=False, yellow=True, green=False)
@@ -224,7 +272,7 @@ while capture.isOpened():
             next_green = signal_order[current_green]
             current_phase = "green"
             last_switch_time = current_time
-    
+
 
     '''
     Always check for the exit clause of the program. Allows the user to manually exit from the program.
